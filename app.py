@@ -4,24 +4,60 @@ import streamlit as st
 
 DB_FILE = "database.json"
 
-# --- DATABASE FUNCTIONS ---
+# --- DATABASE FUNCTIONS WITH SAFE HANDLING ---
 def load_data():
+    default_data = {
+        "users": {
+            "admin": {"password": "adminpassword", "role": "admin"}
+        },
+        "questions": [
+            {
+                "id": 1,
+                "category": "Python",
+                "question": "Which of the following is used to define a block of code in Python?",
+                "options": ["Indentation", "Key", "Brackets", "Parentheses"],
+                "answer": "Indentation"
+            },
+            {
+                "id": 2,
+                "category": "Python",
+                "question": "What is the output of type(10) in Python?",
+                "options": ["float", "int", "number", "double"],
+                "answer": "int"
+            },
+            {
+                "id": 3,
+                "category": "General Knowledge",
+                "question": "What is the capital of France?",
+                "options": ["London", "Berlin", "Paris", "Madrid"],
+                "answer": "Paris"
+            }
+        ]
+    }
+    
     if not os.path.exists(DB_FILE):
-        default_data = {
-            "users": {"admin": {"password": "adminpassword", "role": "admin"}},
-            "questions": []
-        }
         with open(DB_FILE, "w") as f:
             json.dump(default_data, f, indent=4)
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+        return default_data
+    
+    try:
+        with open(DB_FILE, "r") as f:
+            data = json.load(f)
+            # Ensure keys exist
+            if "users" not in data:
+                data["users"] = default_data["users"]
+            if "questions" not in data:
+                data["questions"] = default_data["questions"]
+            return data
+    except Exception:
+        # Fallback if file is corrupted
+        return default_data
 
 def save_data(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
 # --- APP CONFIGURATION ---
-st.set_page_title_id = "Quiz Application"
 st.set_page_config(page_title="Interactive Quiz App", page_icon="🧠", layout="centered")
 
 # Initialize Session State
@@ -29,21 +65,18 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "role" not in st.session_state:
     st.session_state.role = None
-if "page" not in st.session_state:
-    st.session_state.page = "Login"
 
 # --- AUTHENTICATION & REGISTRATION ---
 def auth_page():
     st.title("🧠 Welcome to Quiz Platform")
     tab1, tab2 = st.tabs(["Login", "Register"])
     
-    data = load_data()
-
     with tab1:
         st.subheader("Login to your account")
         username = st.text_input("Username", key="login_user")
         password = st.text_input("Password", type="password", key="login_pass")
         if st.button("Login"):
+            data = load_data()  # Load fresh data from file
             if username in data["users"] and data["users"][username]["password"] == password:
                 st.session_state.user = username
                 st.session_state.role = data["users"][username]["role"]
@@ -57,6 +90,7 @@ def auth_page():
         new_user = st.text_input("Choose Username", key="reg_user")
         new_pass = st.text_input("Choose Password", type="password", key="reg_pass")
         if st.button("Register"):
+            data = load_data()  # Load fresh data from file
             if not new_user or not new_pass:
                 st.warning("Please fill in all fields.")
             elif new_user in data["users"]:
@@ -64,7 +98,7 @@ def auth_page():
             else:
                 data["users"][new_user] = {"password": new_pass, "role": "student"}
                 save_data(data)
-                st.success("Registration successful! Please login.")
+                st.success("Registration successful! Please switch to the Login tab.")
 
 # --- ADMIN PANEL ---
 def admin_panel():
@@ -97,13 +131,14 @@ def admin_panel():
         opt2 = st.text_input("Option 2")
         opt3 = st.text_input("Option 3")
         opt4 = st.text_input("Option 4")
-        ans = st.selectbox("Correct Answer", [opt1, opt2, opt3, opt4])
+        ans = st.selectbox("Correct Answer", [opt1, opt2, opt3, opt4] if opt1 and opt2 else [])
 
         if st.button("Save Question"):
             if not cat or not q_text or not opt1 or not opt2:
-                st.warning("Please fill out all fields.")
+                st.warning("Please fill out all mandatory fields.")
             else:
-                new_id = max([q["id"] for q in data["questions"]], default=0) + 1
+                current_data = load_data()
+                new_id = max([q["id"] for q in current_data["questions"]], default=0) + 1
                 new_q = {
                     "id": new_id,
                     "category": cat,
@@ -111,8 +146,8 @@ def admin_panel():
                     "options": [opt1, opt2, opt3, opt4],
                     "answer": ans
                 }
-                data["questions"].append(new_q)
-                save_data(data)
+                current_data["questions"].append(new_q)
+                save_data(current_data)
                 st.success("Question added successfully!")
 
     if st.button("Logout"):
@@ -160,7 +195,12 @@ def student_panel():
 
             # Maintain previous selection if available
             default_ans = st.session_state.user_answers.get(current_q["id"], None)
-            selected_opt = st.radio("Choose an option:", current_q["options"], index=current_q["options"].index(default_ans) if default_ans in current_q["options"] else 0, key=f"q_{current_q['id']}")
+            try:
+                default_idx = current_q["options"].index(default_ans) if default_ans in current_q["options"] else 0
+            except ValueError:
+                default_idx = 0
+
+            selected_opt = st.radio("Choose an option:", current_q["options"], index=default_idx, key=f"q_{current_q['id']}")
 
             st.session_state.user_answers[current_q["id"]] = selected_opt
 
@@ -217,3 +257,4 @@ elif st.session_state.role == "admin":
     admin_panel()
 else:
     student_panel()
+```[eof]
