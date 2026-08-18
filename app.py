@@ -43,14 +43,12 @@ def load_data():
     try:
         with open(DB_FILE, "r") as f:
             data = json.load(f)
-            # Ensure keys exist
             if "users" not in data:
                 data["users"] = default_data["users"]
             if "questions" not in data:
                 data["questions"] = default_data["questions"]
             return data
     except Exception:
-        # Fallback if file is corrupted
         return default_data
 
 def save_data(data):
@@ -76,7 +74,7 @@ def auth_page():
         username = st.text_input("Username", key="login_user")
         password = st.text_input("Password", type="password", key="login_pass")
         if st.button("Login"):
-            data = load_data()  # Load fresh data from file
+            data = load_data()
             if username in data["users"] and data["users"][username]["password"] == password:
                 st.session_state.user = username
                 st.session_state.role = data["users"][username]["role"]
@@ -90,7 +88,7 @@ def auth_page():
         new_user = st.text_input("Choose Username", key="reg_user")
         new_pass = st.text_input("Choose Password", type="password", key="reg_pass")
         if st.button("Register"):
-            data = load_data()  # Load fresh data from file
+            data = load_data()
             if not new_user or not new_pass:
                 st.warning("Please fill in all fields.")
             elif new_user in data["users"]:
@@ -171,7 +169,6 @@ def student_panel():
             st.rerun()
         return
 
-    # Select Category
     categories = list(set([q["category"] for q in questions]))
     selected_cat = st.selectbox("Select Quiz Category", categories)
 
@@ -193,7 +190,6 @@ def student_panel():
             current_q = q_list[idx]
             st.write(f"**{current_q['question']}**")
 
-            # Maintain previous selection if available
             default_ans = st.session_state.user_answers.get(current_q["id"], None)
             try:
                 default_idx = current_q["options"].index(default_ans) if default_ans in current_q["options"] else 0
@@ -219,7 +215,6 @@ def student_panel():
                         st.session_state.quiz_submitted = True
                         st.rerun()
         else:
-            # --- RESULT PAGE ---
             st.subheader("📊 Quiz Results")
             score = 0
             total = len(q_list)
@@ -251,10 +246,13 @@ def student_panel():
         st.rerun()
 
 # --- MAIN ROUTER ---
+if st.channel_state.user if hasattr(st, 'channel_state') else st.session_state.user is None:
+    # Safe router handling
+    pass
+
 if st.session_state.user is None:
     auth_page()
 elif st.session_state.role == "admin":
     admin_panel()
 else:
     student_panel()
-```[eof]
