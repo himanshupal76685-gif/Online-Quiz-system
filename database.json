@@ -1,0 +1,35 @@
+{
+  "users": {
+    "admin": {
+      "password": "adminpassword",
+      "role": "admin"
+    },
+    "student1": {
+      "password": "password123",
+      "role": "student"
+    }
+  },
+  "questions": [
+    {
+      "id": 1,
+      "category": "Python",
+      "question": "Which of the following is used to define a block of code in Python?",
+      "options": ["Indentation", "Key", "Brackets", "Parentheses"],
+      "answer": "Indentation"
+    },
+    {
+      "id": 2,
+      "category": "Python",
+      "question": "What is the output of type(10) in Python?",
+      "options": ["float", "int", "number", "double"],
+      "answer": "int"
+    },
+    {
+      "id": 3,
+      "category": "General Knowledge",
+      "question": "What is the capital of France?",
+      "options": ["London", "Berlin", "Paris", "Madrid"],
+      "answer": "Paris"
+    }
+  ]
+}
