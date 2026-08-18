@@ -4,11 +4,12 @@ import streamlit as st
 
 DB_FILE = "database.json"
 
-# --- DATABASE FUNCTIONS WITH SAFE HANDLING ---
+# --- DATABASE FUNCTIONS ---
 def load_data():
     default_data = {
         "users": {
-            "admin": {"password": "adminpassword", "role": "admin"}
+            "admin": {"password": "adminpassword", "role": "admin"},
+            "student1": {"password": "password123", "role": "student"}
         },
         "questions": [
             {
@@ -67,6 +68,10 @@ if "role" not in st.session_state:
 # --- AUTHENTICATION & REGISTRATION ---
 def auth_page():
     st.title("🧠 Welcome to Quiz Platform")
+    
+    # Quick helper for testing
+    st.info("💡 Tip: You can login using default student account -> Username: **student1** | Password: **password123**")
+    
     tab1, tab2 = st.tabs(["Login", "Register"])
     
     with tab1:
@@ -96,7 +101,7 @@ def auth_page():
             else:
                 data["users"][new_user] = {"password": new_pass, "role": "student"}
                 save_data(data)
-                st.success("Registration successful! Please switch to the Login tab.")
+                st.success("Registration successful! Please switch to the Login tab and login.")
 
 # --- ADMIN PANEL ---
 def admin_panel():
@@ -104,7 +109,6 @@ def admin_panel():
     st.write(f"Logged in as: **{st.session_state.user}**")
     
     data = load_data()
-    
     menu = st.sidebar.selectbox("Admin Menu", ["View/Delete Questions", "Add Question"])
 
     if menu == "View/Delete Questions":
@@ -246,10 +250,6 @@ def student_panel():
         st.rerun()
 
 # --- MAIN ROUTER ---
-if st.channel_state.user if hasattr(st, 'channel_state') else st.session_state.user is None:
-    # Safe router handling
-    pass
-
 if st.session_state.user is None:
     auth_page()
 elif st.session_state.role == "admin":
