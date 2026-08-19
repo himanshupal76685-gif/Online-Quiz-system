@@ -49,6 +49,8 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "role" not in st.session_state:
     st.session_state.role = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
 # Helper to get GenAI Client securely from secrets
 def get_ai_client():
@@ -207,156 +209,194 @@ def admin_panel():
         st.session_state.role = None
         st.rerun()
 
-# --- STUDENT QUIZ PLATFORM WITH AI HINTS & ANALYSIS ---
+# --- STUDENT QUIZ PLATFORM WITH AI TUTOR CHAT ---
 def student_panel():
     st.title("📚 Student Quiz Portal")
     st.write(f"Welcome, **{st.session_state.user}**!")
     
-    data = load_data()
-    questions = data.get("questions", [])
+    # Navigation tabs for Student: Quiz vs AI Tutor Chat
+    student_tab = st.radio("", ["🎯 Take Quiz", "🤖 AI Chat Tutor"], horizontal=True)
+    
+    if student_tab == "🎯 Take Quiz":
+        data = load_data()
+        questions = data.get("questions", [])
 
-    if not questions:
-        st.warning("No quizzes available right now. Check back later!")
-        if st.button("Logout"):
-            st.session_state.user = None
-            st.session_state.role = None
-            st.rerun()
-        return
+        if not questions:
+            st.warning("No quizzes available right now. Check back later!")
+            if st.button("Logout"):
+                st.session_state.user = None
+                st.session_state.role = None
+                st.rerun()
+            return
 
-    categories = list(set([q["category"] for q in questions]))
-    selected_cat = st.selectbox("Select Quiz Category", categories)
+        categories = list(set([q["category"] for q in questions]))
+        selected_cat = st.selectbox("Select Quiz Category", categories)
 
-    filtered_questions = [q for q in questions if q["category"] == selected_cat]
+        filtered_questions = [q for q in questions if q["category"] == selected_cat]
 
-    if st.button("🚀 Start Quiz"):
-        st.session_state.active_quiz = filtered_questions
-        st.session_state.current_q_index = 0
-        st.session_state.user_answers = {}
-        st.session_state.quiz_submitted = False
-        st.session_state.quiz_start_time = time.time()
-        st.session_state.time_limit = 120  # 2 minutes timer
-        st.rerun()
-
-    if "active_quiz" in st.session_state and st.session_state.active_quiz:
-        q_list = st.session_state.active_quiz
-        idx = st.session_state.current_q_index
-
-        elapsed_time = int(time.time() - st.session_state.quiz_start_time)
-        time_left = st.session_state.time_limit - elapsed_time
-
-        if time_left <= 0 and not st.session_state.quiz_submitted:
-            st.warning("⏰ Time's up! Your quiz has been auto-submitted.")
-            st.session_state.quiz_submitted = True
+        if st.button("🚀 Start Quiz"):
+            st.session_state.active_quiz = filtered_questions
+            st.session_state.current_q_index = 0
+            st.session_state.user_answers = {}
+            st.session_state.quiz_submitted = False
+            st.session_state.quiz_start_time = time.time()
+            st.session_state.time_limit = 120  # 2 minutes timer
             st.rerun()
 
-        if not st.session_state.quiz_submitted:
-            col_q, col_timer = st.columns([3, 1])
-            with col_q:
-                st.markdown(f"### Question {idx + 1} of {len(q_list)}")
-            with col_timer:
-                st.markdown(f"**⏱️ Time Left:** `{max(0, time_left)}s`")
+        if "active_quiz" in st.session_state and st.session_state.active_quiz:
+            q_list = st.session_state.active_quiz
+            idx = st.session_state.current_q_index
 
-            current_q = q_list[idx]
-            st.write(f"**{current_q['question']}**")
+            elapsed_time = int(time.time() - st.session_state.quiz_start_time)
+            time_left = st.session_state.time_limit - elapsed_time
 
-            options = current_q["options"]
-            current_ans = st.session_state.user_answers.get(current_q["id"], None)
-            display_options = ["-- Select an option --"] + options
-            
-            if current_ans in options:
-                default_index = options.index(current_ans) + 1
+            if time_left <= 0 and not st.session_state.quiz_submitted:
+                st.warning("⏰ Time's up! Your quiz has been auto-submitted.")
+                st.session_state.quiz_submitted = True
+                st.rerun()
+
+            if not st.session_state.quiz_submitted:
+                col_q, col_timer = st.columns([3, 1])
+                with col_q:
+                    st.markdown(f"### Question {idx + 1} of {len(q_list)}")
+                with col_timer:
+                    st.markdown(f"**⏱️ Time Left:** `{max(0, time_left)}s`")
+
+                current_q = q_list[idx]
+                st.write(f"**{current_q['question']}**")
+
+                options = current_q["options"]
+                current_ans = st.session_state.user_answers.get(current_q["id"], None)
+                display_options = ["-- Select an option --"] + options
+                
+                if current_ans in options:
+                    default_index = options.index(current_ans) + 1
+                else:
+                    default_index = 0
+
+                selected_choice = st.radio("Choose an option:", display_options, index=default_index, key=f"q_{current_q['id']}")
+
+                if selected_choice != "-- Select an option --":
+                    st.session_state.user_answers[current_q["id"]] = selected_choice
+                else:
+                    if current_q["id"] in st.session_state.user_answers:
+                        del st.session_state.user_answers[current_q["id"]]
+
+                # AI Hint Section Option
+                with st.expander("💡 Need an AI Hint?"):
+                    if st.button("Get AI Hint", key=f"hint_btn_{idx}"):
+                        client = get_ai_client()
+                        if not client:
+                            st.error("Gemini API Key is missing in Streamlit Secrets!")
+                        else:
+                            try:
+                                prompt = f"Give a subtle, helpful hint (without directly revealing the correct answer) for this question: '{current_q['question']}' with options: {current_q['options']}"
+                                res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                                st.info(res.text)
+                            except Exception as e:
+                                st.error(f"Could not fetch hint: {e}")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if idx > 0 and st.button("⬅️ Previous"):
+                        st.session_state.current_q_index -= 1
+                        st.rerun()
+                with col2:
+                    if idx < len(q_list) - 1:
+                        if st.button("Next ➡️"):
+                            st.session_state.current_q_index += 1
+                            st.rerun()
+                    else:
+                        if st.button("✅ Submit Quiz"):
+                            st.session_state.quiz_submitted = True
+                            st.rerun()
             else:
-                default_index = 0
+                # --- RESULT PAGE & AI PERFORMANCE FEEDBACK ---
+                st.subheader("📊 Quiz Performance & AI Insights")
+                score = 0
+                total = len(q_list)
+                incorrect_questions = []
 
-            selected_choice = st.radio("Choose an option:", display_options, index=default_index, key=f"q_{current_q['id']}")
+                for q in q_list:
+                    user_ans = st.session_state.user_answers.get(q["id"])
+                    if user_ans == q["answer"]:
+                        score += 1
+                    else:
+                        incorrect_questions.append({
+                            "question": q["question"],
+                            "your_answer": user_ans if user_ans else "Not Answered",
+                            "correct_answer": q["answer"]
+                        })
 
-            if selected_choice != "-- Select an option --":
-                st.session_state.user_answers[current_q["id"]] = selected_choice
-            else:
-                if current_q["id"] in st.session_state.user_answers:
-                    del st.session_state.user_answers[current_q["id"]]
+                percentage = (score / total) * 100
 
-            # AI Hint Section Option
-            with st.expander("💡 Need an AI Hint?"):
-                if st.button("Get AI Hint", key=f"hint_btn_{idx}"):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric(label="Final Score", value=f"{score} / {total}")
+                with col_b:
+                    st.metric(label="Percentage", value=f"{percentage:.2f}%")
+
+                if percentage >= 50:
+                    st.success("🎉 Outstanding! You passed the quiz successfully.")
+                else:
+                    st.error("❌ Don't worry! Review the material and try again.")
+
+                # AI Analysis Section
+                st.markdown("---")
+                st.subheader("🤖 AI Performance Tutor Analysis")
+                if st.button("Generate AI Feedback"):
                     client = get_ai_client()
                     if not client:
                         st.error("Gemini API Key is missing in Streamlit Secrets!")
                     else:
                         try:
-                            prompt = f"Give a subtle, helpful hint (without directly revealing the correct answer) for this question: '{current_q['question']}' with options: {current_q['options']}"
-                            res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                            st.info(res.text)
+                            feedback_prompt = f"The student scored {score} out of {total} ({percentage}%) in category {selected_cat}. Here are the questions they got wrong: {incorrect_questions}. Provide a short, motivating tutor-like feedback explaining how they can improve."
+                            feedback_res = client.models.generate_content(model='gemini-2.5-flash', contents=feedback_prompt)
+                            st.write(feedback_res.text)
                         except Exception as e:
-                            st.error(f"Could not fetch hint: {e}")
+                            st.error(f"Error generating feedback: {e}")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                if idx > 0 and st.button("⬅️ Previous"):
-                    st.session_state.current_q_index -= 1
+                if st.button("🔄 Restart / Attempt Another Quiz"):
+                    del st.session_state.active_quiz
+                    del st.session_state.current_q_index
+                    del st.session_state.user_answers
+                    del st.session_state.quiz_submitted
                     st.rerun()
-            with col2:
-                if idx < len(q_list) - 1:
-                    if st.button("Next ➡️"):
-                        st.session_state.current_q_index += 1
-                        st.rerun()
-                else:
-                    if st.button("✅ Submit Quiz"):
-                        st.session_state.quiz_submitted = True
-                        st.rerun()
-        else:
-            # --- RESULT PAGE & AI PERFORMANCE FEEDBACK ---
-            st.subheader("📊 Quiz Performance & AI Insights")
-            score = 0
-            total = len(q_list)
-            incorrect_questions = []
 
-            for q in q_list:
-                user_ans = st.session_state.user_answers.get(q["id"])
-                if user_ans == q["answer"]:
-                    score += 1
-                else:
-                    incorrect_questions.append({
-                        "question": q["question"],
-                        "your_answer": user_ans if user_ans else "Not Answered",
-                        "correct_answer": q["answer"]
-                    })
+    elif student_tab == "🤖 AI Chat Tutor":
+        st.subheader("💬 Chat with AI Tutor")
+        st.write("Aap yahan kisi bhi subject, concept ya sawaal ke baare mein Gemini AI se direct pooch sakte hain!")
 
-            percentage = (score / total) * 100
+        # Display chat history
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric(label="Final Score", value=f"{score} / {total}")
-            with col_b:
-                st.metric(label="Percentage", value=f"{percentage:.2f}%")
+        # User input for chat
+        user_query = st.chat_input("Apna sawal yahan type karein...")
+        if user_query:
+            st.session_state.chat_history.append({"role": "user", "content": user_query})
+            with st.chat_message("user"):
+                st.markdown(user_query)
 
-            if percentage >= 50:
-                st.success("🎉 Outstanding! You passed the quiz successfully.")
+            client = get_ai_client()
+            if not client:
+                st.error("Gemini API Key is missing in Streamlit Secrets!")
             else:
-                st.error("❌ Don't worry! Review the material and try again.")
+                with st.chat_message("assistant"):
+                    with st.spinner("AI Tutor soch raha hai..."):
+                        try:
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=user_query
+                            )
+                            ai_reply = response.text
+                            st.markdown(ai_reply)
+                            st.session_state.chat_history.append({"role": "assistant", "content": ai_reply})
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
-            # AI Analysis Section
-            st.markdown("---")
-            st.subheader("🤖 AI Performance Tutor Analysis")
-            if st.button("Generate AI Feedback"):
-                client = get_ai_client()
-                if not client:
-                    st.error("Gemini API Key is missing in Streamlit Secrets!")
-                else:
-                    try:
-                        feedback_prompt = f"The student scored {score} out of {total} ({percentage}%) in category {selected_cat}. Here are the questions they got wrong: {incorrect_questions}. Provide a short, motivating tutor-like feedback explaining how they can improve."
-                        feedback_res = client.models.generate_content(model='gemini-2.5-flash', contents=feedback_prompt)
-                        st.write(feedback_res.text)
-                    except Exception as e:
-                        st.error(f"Error generating feedback: {e}")
-
-            if st.button("🔄 Restart / Attempt Another Quiz"):
-                del st.session_state.active_quiz
-                del st.session_state.current_q_index
-                del st.session_state.user_answers
-                del st.session_state.quiz_submitted
-                st.rerun()
-
+    st.markdown("---")
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
