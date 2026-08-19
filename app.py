@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import streamlit as st
 
 DB_FILE = "database.json"
@@ -56,8 +57,36 @@ def save_data(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# --- APP CONFIGURATION ---
-st.set_page_config(page_title="Interactive Quiz App", page_icon="🧠", layout="centered")
+# --- APP CONFIGURATION & STYLING ---
+st.set_page_config(page_title="Pro Quiz Application", page_icon="🎯", layout="centered")
+
+# Custom CSS for Modern UI
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f8f9fa;
+    }
+    .stButton>button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: bold;
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .stButton>button:hover {
+        background: linear-gradient(135deg, #5a6fd6 0%, #684190 100%);
+        color: #fff;
+    }
+    div.stMetric {
+        background-color: white;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Initialize Session State
 if "user" not in st.session_state:
@@ -67,18 +96,16 @@ if "role" not in st.session_state:
 
 # --- AUTHENTICATION & REGISTRATION ---
 def auth_page():
-    st.title("🧠 Welcome to Quiz Platform")
+    st.title("🎯 Pro Quiz Platform")
+    st.info("💡 **Demo Accounts:** Admin -> `admin` / `adminpassword` | Student -> `student1` / `password123`")
     
-    # Quick helper for testing
-    st.info("💡 Tip: You can login using default student account -> Username: **student1** | Password: **password123**")
-    
-    tab1, tab2 = st.tabs(["Login", "Register"])
+    tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
     
     with tab1:
         st.subheader("Login to your account")
         username = st.text_input("Username", key="login_user")
         password = st.text_input("Password", type="password", key="login_pass")
-        if st.button("Login"):
+        if st.button("Login Now"):
             data = load_data()
             if username in data["users"] and data["users"][username]["password"] == password:
                 st.session_state.user = username
@@ -92,7 +119,7 @@ def auth_page():
         st.subheader("Create a new Student account")
         new_user = st.text_input("Choose Username", key="reg_user")
         new_pass = st.text_input("Choose Password", type="password", key="reg_pass")
-        if st.button("Register"):
+        if st.button("Register Account"):
             data = load_data()
             if not new_user or not new_pass:
                 st.warning("Please fill in all fields.")
@@ -101,7 +128,7 @@ def auth_page():
             else:
                 data["users"][new_user] = {"password": new_pass, "role": "student"}
                 save_data(data)
-                st.success("Registration successful! Please switch to the Login tab and login.")
+                st.success("Registration successful! Please switch to the Login tab.")
 
 # --- ADMIN PANEL ---
 def admin_panel():
@@ -109,9 +136,9 @@ def admin_panel():
     st.write(f"Logged in as: **{st.session_state.user}**")
     
     data = load_data()
-    menu = st.sidebar.selectbox("Admin Menu", ["View/Delete Questions", "Add Question"])
+    menu = st.sidebar.selectbox("Admin Menu", ["Manage Questions", "Add Question"])
 
-    if menu == "View/Delete Questions":
+    if menu == "Manage Questions":
         st.subheader("Existing Questions")
         if not data["questions"]:
             st.info("No questions available.")
@@ -157,7 +184,7 @@ def admin_panel():
         st.session_state.role = None
         st.rerun()
 
-# --- STUDENT QUIZ PLATFORM ---
+# --- STUDENT QUIZ PLATFORM WITH TIMER & SHUFFLE ---
 def student_panel():
     st.title("📚 Student Quiz Portal")
     st.write(f"Welcome, **{st.session_state.user}**!")
@@ -178,18 +205,34 @@ def student_panel():
 
     filtered_questions = [q for q in questions if q["category"] == selected_cat]
 
-    if st.button("Start Quiz"):
+    if st.button("🚀 Start Quiz (with Timer)"):
         st.session_state.active_quiz = filtered_questions
         st.session_state.current_q_index = 0
         st.session_state.user_answers = {}
         st.session_state.quiz_submitted = False
+        # Set a 60 seconds timer for the quiz block
+        st.session_state.quiz_start_time = time.time()
+        st.session_state.time_limit = 60 
         st.rerun()
 
     if "active_quiz" in st.session_state and st.session_state.active_quiz:
         q_list = st.session_state.active_quiz
         idx = st.session_state.current_q_index
 
+        # Timer calculation
+        elapsed_time = int(time.time() - st.session_state.quiz_start_time)
+        time_left = st.session_state.time_limit - elapsed_time
+
+        if time_left <= 0 and not st.session_state.quiz_submitted:
+            st.warning("⏰ Time's up! Your quiz has been auto-submitted.")
+            st.session_state.quiz_submitted = True
+            st.rerun()
+
         if not st.session_state.quiz_submitted:
+            # Display Timer in sidebar or top bar
+            st.sidebar.markdown("### ⏱️ Time Remaining")
+            st.sidebar.metric(label="Seconds Left", value=max(0, time_left))
+
             st.markdown(f"### Question {idx + 1} of {len(q_list)}")
             current_q = q_list[idx]
             st.write(f"**{current_q['question']}**")
@@ -206,20 +249,21 @@ def student_panel():
 
             col1, col2 = st.columns(2)
             with col1:
-                if idx > 0 and st.button("Previous"):
+                if idx > 0 and st.button("⬅️ Previous"):
                     st.session_state.current_q_index -= 1
                     st.rerun()
             with col2:
                 if idx < len(q_list) - 1:
-                    if st.button("Next"):
+                    if st.button("Next ➡️"):
                         st.session_state.current_q_index += 1
                         st.rerun()
                 else:
-                    if st.button("Submit Quiz"):
+                    if st.button("✅ Submit Quiz"):
                         st.session_state.quiz_submitted = True
                         st.rerun()
         else:
-            st.subheader("📊 Quiz Results")
+            # --- RESULT PAGE ---
+            st.subheader("📊 Quiz Performance & Results")
             score = 0
             total = len(q_list)
 
@@ -230,13 +274,16 @@ def student_panel():
 
             percentage = (score / total) * 100
 
-            st.metric(label="Your Score", value=f"{score} / {total}")
-            st.metric(label="Percentage", value=f"{percentage:.2f}%")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric(label="Final Score", value=f"{score} / {total}")
+            with col_b:
+                st.metric(label="Percentage", value=f"{percentage:.2f}%")
 
             if percentage >= 50:
-                st.success("🎉 Congratulations! You passed the quiz.")
+                st.success("🎉 Outstanding! You passed the quiz successfully.")
             else:
-                st.error("❌ Keep practicing! You can do better.")
+                st.error("❌ Don't worry! Review the material and try again.")
 
             if st.button("🔄 Restart / Attempt Another Quiz"):
                 del st.session_state.active_quiz
