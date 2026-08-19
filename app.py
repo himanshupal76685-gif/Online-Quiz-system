@@ -7,51 +7,13 @@ DB_FILE = "database.json"
 
 # --- DATABASE FUNCTIONS ---
 def load_data():
-    default_data = {
-        "users": {
-            "admin": {"password": "adminpassword", "role": "admin"},
-            "student1": {"password": "password123", "role": "student"}
-        },
-        "questions": [
-            {
-                "id": 1,
-                "category": "Python",
-                "question": "Which of the following is used to define a block of code in Python?",
-                "options": ["Indentation", "Key", "Brackets", "Parentheses"],
-                "answer": "Indentation"
-            },
-            {
-                "id": 2,
-                "category": "Python",
-                "question": "What is the output of type(10) in Python?",
-                "options": ["float", "int", "number", "double"],
-                "answer": "int"
-            },
-            {
-                "id": 3,
-                "category": "General Knowledge",
-                "question": "What is the capital of France?",
-                "options": ["London", "Berlin", "Paris", "Madrid"],
-                "answer": "Paris"
-            }
-        ]
-    }
-    
     if not os.path.exists(DB_FILE):
-        with open(DB_FILE, "w") as f:
-            json.dump(default_data, f, indent=4)
-        return default_data
-    
+        return {"users": {}, "questions": []}
     try:
         with open(DB_FILE, "r") as f:
-            data = json.load(f)
-            if "users" not in data:
-                data["users"] = default_data["users"]
-            if "questions" not in data:
-                data["questions"] = default_data["questions"]
-            return data
+            return json.load(f)
     except Exception:
-        return default_data
+        return {"users": {}, "questions": []}
 
 def save_data(data):
     with open(DB_FILE, "w") as f:
@@ -60,7 +22,6 @@ def save_data(data):
 # --- APP CONFIGURATION & STYLING ---
 st.set_page_config(page_title="Pro Quiz Application", page_icon="🎯", layout="centered")
 
-# Custom CSS for Modern UI
 st.markdown("""
     <style>
     .main {
@@ -78,12 +39,6 @@ st.markdown("""
     .stButton>button:hover {
         background: linear-gradient(135deg, #5a6fd6 0%, #684190 100%);
         color: #fff;
-    }
-    div.stMetric {
-        background-color: white;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -107,7 +62,7 @@ def auth_page():
         password = st.text_input("Password", type="password", key="login_pass")
         if st.button("Login Now"):
             data = load_data()
-            if username in data["users"] and data["users"][username]["password"] == password:
+            if username in data.get("users", {}) and data["users"][username]["password"] == password:
                 st.session_state.user = username
                 st.session_state.role = data["users"][username]["role"]
                 st.success(f"Welcome back, {username}!")
@@ -123,9 +78,11 @@ def auth_page():
             data = load_data()
             if not new_user or not new_pass:
                 st.warning("Please fill in all fields.")
-            elif new_user in data["users"]:
+            elif "users" in data and new_user in data["users"]:
                 st.error("Username already exists!")
             else:
+                if "users" not in data:
+                    data["users"] = {}
                 data["users"][new_user] = {"password": new_pass, "role": "student"}
                 save_data(data)
                 st.success("Registration successful! Please switch to the Login tab.")
@@ -140,21 +97,22 @@ def admin_panel():
 
     if menu == "Manage Questions":
         st.subheader("Existing Questions")
-        if not data["questions"]:
+        questions = data.get("questions", [])
+        if not questions:
             st.info("No questions available.")
-        for idx, q in enumerate(data["questions"]):
+        for idx, q in enumerate(questions):
             with st.expander(f"Q{idx+1}: {q['question']} (Cat: {q['category']})"):
                 st.write(f"**Options:** {', '.join(q['options'])}")
                 st.write(f"**Answer:** {q['answer']}")
                 if st.button(f"Delete Question {q['id']}", key=f"del_{q['id']}"):
-                    data["questions"] = [item for item in data["questions"] if item["id"] != q["id"]]
+                    data["questions"] = [item for item in questions if item["id"] != q["id"]]
                     save_data(data)
                     st.success("Question deleted successfully!")
                     st.rerun()
 
     elif menu == "Add Question":
         st.subheader("Add a New Question")
-        cat = st.text_input("Category (e.g., Python, GK)")
+        cat = st.text_input("Category (e.g., Python, Java, DSA)")
         q_text = st.text_area("Question Text")
         opt1 = st.text_input("Option 1")
         opt2 = st.text_input("Option 2")
@@ -167,7 +125,8 @@ def admin_panel():
                 st.warning("Please fill out all mandatory fields.")
             else:
                 current_data = load_data()
-                new_id = max([q["id"] for q in current_data["questions"]], default=0) + 1
+                questions = current_data.get("questions", [])
+                new_id = max([q["id"] for q in questions], default=0) + 1
                 new_q = {
                     "id": new_id,
                     "category": cat,
@@ -175,7 +134,8 @@ def admin_panel():
                     "options": [opt1, opt2, opt3, opt4],
                     "answer": ans
                 }
-                current_data["questions"].append(new_q)
+                questions.append(new_q)
+                current_data["questions"] = questions
                 save_data(current_data)
                 st.success("Question added successfully!")
 
@@ -184,13 +144,13 @@ def admin_panel():
         st.session_state.role = None
         st.rerun()
 
-# --- STUDENT QUIZ PLATFORM WITH TIMER & SHUFFLE ---
+# --- STUDENT QUIZ PLATFORM ---
 def student_panel():
     st.title("📚 Student Quiz Portal")
     st.write(f"Welcome, **{st.session_state.user}**!")
     
     data = load_data()
-    questions = data["questions"]
+    questions = data.get("questions", [])
 
     if not questions:
         st.warning("No quizzes available right now. Check back later!")
@@ -205,21 +165,19 @@ def student_panel():
 
     filtered_questions = [q for q in questions if q["category"] == selected_cat]
 
-    if st.button("🚀 Start Quiz (with Timer)"):
+    if st.button("🚀 Start Quiz"):
         st.session_state.active_quiz = filtered_questions
         st.session_state.current_q_index = 0
         st.session_state.user_answers = {}
         st.session_state.quiz_submitted = False
-        # Set a 60 seconds timer for the quiz block
         st.session_state.quiz_start_time = time.time()
-        st.session_state.time_limit = 60 
+        st.session_state.time_limit = 120  # 2 minutes timer
         st.rerun()
 
     if "active_quiz" in st.session_state and st.session_state.active_quiz:
         q_list = st.session_state.active_quiz
         idx = st.session_state.current_q_index
 
-        # Timer calculation
         elapsed_time = int(time.time() - st.session_state.quiz_start_time)
         time_left = st.session_state.time_limit - elapsed_time
 
@@ -229,23 +187,35 @@ def student_panel():
             st.rerun()
 
         if not st.session_state.quiz_submitted:
-            # Display Timer in sidebar or top bar
-            st.sidebar.markdown("### ⏱️ Time Remaining")
-            st.sidebar.metric(label="Seconds Left", value=max(0, time_left))
+            # Layout: Question Info on Left, Timer on Right side header
+            col_q, col_timer = st.columns([3, 1])
+            with col_q:
+                st.markdown(f"### Question {idx + 1} of {len(q_list)}")
+            with col_timer:
+                st.markdown(f"**⏱️ Time Left:** `{max(0, time_left)}s`")
 
-            st.markdown(f"### Question {idx + 1} of {len(q_list)}")
             current_q = q_list[idx]
             st.write(f"**{current_q['question']}**")
 
-            default_ans = st.session_state.user_answers.get(current_q["id"], None)
-            try:
-                default_idx = current_q["options"].index(default_ans) if default_ans in current_q["options"] else 0
-            except ValueError:
-                default_idx = 0
+            # Handle unselected default state (using None index via a placeholder option or custom index logic)
+            options = current_q["options"]
+            current_ans = st.session_state.user_answers.get(current_q["id"], None)
+            
+            # To ensure nothing is pre-selected by default, we add a temporary unselected prompt if not answered yet
+            display_options = ["-- Select an option --"] + options
+            
+            if current_ans in options:
+                default_index = options.index(current_ans) + 1
+            else:
+                default_index = 0
 
-            selected_opt = st.radio("Choose an option:", current_q["options"], index=default_idx, key=f"q_{current_q['id']}")
+            selected_choice = st.radio("Choose an option:", display_options, index=default_index, key=f"q_{current_q['id']}")
 
-            st.session_state.user_answers[current_q["id"]] = selected_opt
+            if selected_choice != "-- Select an option --":
+                st.session_state.user_answers[current_q["id"]] = selected_choice
+            else:
+                if current_q["id"] in st.session_state.user_answers:
+                    del st.session_state.user_answers[current_q["id"]]
 
             col1, col2 = st.columns(2)
             with col1:
