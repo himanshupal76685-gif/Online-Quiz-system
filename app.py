@@ -50,6 +50,14 @@ if "user" not in st.session_state:
 if "role" not in st.session_state:
     st.session_state.role = None
 
+# Helper to get GenAI Client securely from secrets
+def get_ai_client():
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        return genai.Client(api_key=api_key)
+    except Exception:
+        return None
+
 # --- AUTHENTICATION & REGISTRATION ---
 def auth_page():
     st.title("🎯 AI-Powered Pro Quiz Platform")
@@ -142,55 +150,57 @@ def admin_panel():
 
     elif menu == "🤖 AI Question Generator":
         st.subheader("Generate Questions using Gemini AI")
-        api_key_input = st.text_input("Enter your Google Gemini API Key", type="password")
         ai_topic = st.text_input("Enter Topic/Subject (e.g., Advanced Python, ReactJS, Networking)")
         num_q = st.slider("Number of Questions", 1, 5, 3)
 
         if st.button("Generate & Save via AI"):
-            if not api_key_input or not ai_topic:
-                st.warning("Please provide both API Key and Topic.")
+            if not ai_topic:
+                st.warning("Please provide a topic.")
             else:
-                try:
-                    client = genai.Client(api_key=api_key_input)
-                    prompt = f"""
-                    Generate {num_q} multiple choice questions about {ai_topic}. 
-                    Return ONLY a valid JSON array of objects. Do not include any markdown formatting like ```json ... ```.
-                    Each object must have these exact keys:
-                    "question": string,
-                    "options": array of 4 strings,
-                    "answer": string (must match one of the options exactly)
-                    """
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=prompt,
-                    )
-                    
-                    raw_text = response.text.strip()
-                    if raw_text.startswith("```"):
-                        raw_text = raw_text.split("```")[1]
-                        if raw_text.startswith("json"):
-                            raw_text = raw_text[4:].strip()
-                    
-                    ai_questions = json.loads(raw_text)
-                    current_data = load_data()
-                    questions = current_data.get("questions", [])
-                    
-                    for aq in ai_questions:
-                        new_id = max([q["id"] for q in questions], default=0) + 1
-                        formatted_q = {
-                            "id": new_id,
-                            "category": ai_topic,
-                            "question": aq["question"],
-                            "options": aq["options"],
-                            "answer": aq["answer"]
-                        }
-                        questions.append(formatted_q)
-                    
-                    current_data["questions"] = questions
-                    save_data(current_data)
-                    st.success(f"Successfully generated and added {len(ai_questions)} questions under category '{ai_topic}'!")
-                except Exception as e:
-                    st.error(f"Error generating questions via AI: {e}")
+                client = get_ai_client()
+                if not client:
+                    st.error("Gemini API Key is missing in Streamlit Secrets!")
+                else:
+                    try:
+                        prompt = f"""
+                        Generate {num_q} multiple choice questions about {ai_topic}. 
+                        Return ONLY a valid JSON array of objects. Do not include any markdown formatting like ```json ... ```.
+                        Each object must have these exact keys:
+                        "question": string,
+                        "options": array of 4 strings,
+                        "answer": string (must match one of the options exactly)
+                        """
+                        response = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=prompt,
+                        )
+                        
+                        raw_text = response.text.strip()
+                        if raw_text.startswith("```"):
+                            raw_text = raw_text.split("```")[1]
+                            if raw_text.startswith("json"):
+                                raw_text = raw_text[4:].strip()
+                        
+                        ai_questions = json.loads(raw_text)
+                        current_data = load_data()
+                        questions = current_data.get("questions", [])
+                        
+                        for aq in ai_questions:
+                            new_id = max([q["id"] for q in questions], default=0) + 1
+                            formatted_q = {
+                                "id": new_id,
+                                "category": ai_topic,
+                                "question": aq["question"],
+                                "options": aq["options"],
+                                "answer": aq["answer"]
+                            }
+                            questions.append(formatted_q)
+                        
+                        current_data["questions"] = questions
+                        save_data(current_data)
+                        st.success(f"Successfully generated and added {len(ai_questions)} questions under category '{ai_topic}'!")
+                    except Exception as e:
+                        st.error(f"Error generating questions via AI: {e}")
 
     if st.button("Logout"):
         st.session_state.user = None
@@ -268,13 +278,12 @@ def student_panel():
 
             # AI Hint Section Option
             with st.expander("💡 Need an AI Hint?"):
-                gemini_key_student = st.text_input("Enter Gemini API Key for Hint", type="password", key=f"hint_key_{idx}")
-                if st.button("Get Hint", key=f"hint_btn_{idx}"):
-                    if not gemini_key_student:
-                        st.warning("Please enter your Gemini API Key.")
+                if st.button("Get AI Hint", key=f"hint_btn_{idx}"):
+                    client = get_ai_client()
+                    if not client:
+                        st.error("Gemini API Key is missing in Streamlit Secrets!")
                     else:
                         try:
-                            client = genai.Client(api_key=gemini_key_student)
                             prompt = f"Give a subtle, helpful hint (without directly revealing the correct answer) for this question: '{current_q['question']}' with options: {current_q['options']}"
                             res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
                             st.info(res.text)
@@ -329,13 +338,12 @@ def student_panel():
             # AI Analysis Section
             st.markdown("---")
             st.subheader("🤖 AI Performance Tutor Analysis")
-            ai_analysis_key = st.text_input("Enter Gemini API Key for Feedback", type="password", key="analysis_key")
             if st.button("Generate AI Feedback"):
-                if not ai_analysis_key:
-                    st.warning("Please enter your API Key for detailed feedback.")
+                client = get_ai_client()
+                if not client:
+                    st.error("Gemini API Key is missing in Streamlit Secrets!")
                 else:
                     try:
-                        client = genai.Client(api_key=ai_analysis_key)
                         feedback_prompt = f"The student scored {score} out of {total} ({percentage}%) in category {selected_cat}. Here are the questions they got wrong: {incorrect_questions}. Provide a short, motivating tutor-like feedback explaining how they can improve."
                         feedback_res = client.models.generate_content(model='gemini-2.5-flash', contents=feedback_prompt)
                         st.write(feedback_res.text)
