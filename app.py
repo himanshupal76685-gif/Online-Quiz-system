@@ -2,6 +2,7 @@ import json
 import os
 import time
 import streamlit as st
+from google import genai
 
 DB_FILE = "database.json"
 
@@ -20,7 +21,7 @@ def save_data(data):
         json.dump(data, f, indent=4)
 
 # --- APP CONFIGURATION & STYLING ---
-st.set_page_config(page_title="Pro Quiz Application", page_icon="🎯", layout="centered")
+st.set_page_config(page_title="AI-Powered Pro Quiz Application", page_icon="🤖", layout="centered")
 
 st.markdown("""
     <style>
@@ -51,7 +52,7 @@ if "role" not in st.session_state:
 
 # --- AUTHENTICATION & REGISTRATION ---
 def auth_page():
-    st.title("🎯 Pro Quiz Platform")
+    st.title("🎯 AI-Powered Pro Quiz Platform")
     st.info("💡 **Demo Accounts:** Admin -> `admin` / `adminpassword` | Student -> `student1` / `password123`")
     
     tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
@@ -87,13 +88,13 @@ def auth_page():
                 save_data(data)
                 st.success("Registration successful! Please switch to the Login tab.")
 
-# --- ADMIN PANEL ---
+# --- ADMIN PANEL WITH AI QUESTION GENERATOR ---
 def admin_panel():
-    st.title("👨‍💼 Admin Dashboard")
+    st.title("👨‍💼 Admin Dashboard (AI Enhanced)")
     st.write(f"Logged in as: **{st.session_state.user}**")
     
     data = load_data()
-    menu = st.sidebar.selectbox("Admin Menu", ["Manage Questions", "Add Question"])
+    menu = st.sidebar.selectbox("Admin Menu", ["Manage Questions", "Add Question", "🤖 AI Question Generator"])
 
     if menu == "Manage Questions":
         st.subheader("Existing Questions")
@@ -111,7 +112,7 @@ def admin_panel():
                     st.rerun()
 
     elif menu == "Add Question":
-        st.subheader("Add a New Question")
+        st.subheader("Add a New Question manually")
         cat = st.text_input("Category (e.g., Python, Java, DSA)")
         q_text = st.text_area("Question Text")
         opt1 = st.text_input("Option 1")
@@ -139,12 +140,64 @@ def admin_panel():
                 save_data(current_data)
                 st.success("Question added successfully!")
 
+    elif menu == "🤖 AI Question Generator":
+        st.subheader("Generate Questions using Gemini AI")
+        api_key_input = st.text_input("Enter your Google Gemini API Key", type="password")
+        ai_topic = st.text_input("Enter Topic/Subject (e.g., Advanced Python, ReactJS, Networking)")
+        num_q = st.slider("Number of Questions", 1, 5, 3)
+
+        if st.button("Generate & Save via AI"):
+            if not api_key_input or not ai_topic:
+                st.warning("Please provide both API Key and Topic.")
+            else:
+                try:
+                    client = genai.Client(api_key=api_key_input)
+                    prompt = f"""
+                    Generate {num_q} multiple choice questions about {ai_topic}. 
+                    Return ONLY a valid JSON array of objects. Do not include any markdown formatting like ```json ... ```.
+                    Each object must have these exact keys:
+                    "question": string,
+                    "options": array of 4 strings,
+                    "answer": string (must match one of the options exactly)
+                    """
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt,
+                    )
+                    
+                    raw_text = response.text.strip()
+                    if raw_text.startswith("```"):
+                        raw_text = raw_text.split("```")[1]
+                        if raw_text.startswith("json"):
+                            raw_text = raw_text[4:].strip()
+                    
+                    ai_questions = json.loads(raw_text)
+                    current_data = load_data()
+                    questions = current_data.get("questions", [])
+                    
+                    for aq in ai_questions:
+                        new_id = max([q["id"] for q in questions], default=0) + 1
+                        formatted_q = {
+                            "id": new_id,
+                            "category": ai_topic,
+                            "question": aq["question"],
+                            "options": aq["options"],
+                            "answer": aq["answer"]
+                        }
+                        questions.append(formatted_q)
+                    
+                    current_data["questions"] = questions
+                    save_data(current_data)
+                    st.success(f"Successfully generated and added {len(ai_questions)} questions under category '{ai_topic}'!")
+                except Exception as e:
+                    st.error(f"Error generating questions via AI: {e}")
+
     if st.button("Logout"):
         st.session_state.user = None
         st.session_state.role = None
         st.rerun()
 
-# --- STUDENT QUIZ PLATFORM ---
+# --- STUDENT QUIZ PLATFORM WITH AI HINTS & ANALYSIS ---
 def student_panel():
     st.title("📚 Student Quiz Portal")
     st.write(f"Welcome, **{st.session_state.user}**!")
@@ -187,7 +240,6 @@ def student_panel():
             st.rerun()
 
         if not st.session_state.quiz_submitted:
-            # Layout: Question Info on Left, Timer on Right side header
             col_q, col_timer = st.columns([3, 1])
             with col_q:
                 st.markdown(f"### Question {idx + 1} of {len(q_list)}")
@@ -197,11 +249,8 @@ def student_panel():
             current_q = q_list[idx]
             st.write(f"**{current_q['question']}**")
 
-            # Handle unselected default state (using None index via a placeholder option or custom index logic)
             options = current_q["options"]
             current_ans = st.session_state.user_answers.get(current_q["id"], None)
-            
-            # To ensure nothing is pre-selected by default, we add a temporary unselected prompt if not answered yet
             display_options = ["-- Select an option --"] + options
             
             if current_ans in options:
@@ -216,6 +265,21 @@ def student_panel():
             else:
                 if current_q["id"] in st.session_state.user_answers:
                     del st.session_state.user_answers[current_q["id"]]
+
+            # AI Hint Section Option
+            with st.expander("💡 Need an AI Hint?"):
+                gemini_key_student = st.text_input("Enter Gemini API Key for Hint", type="password", key=f"hint_key_{idx}")
+                if st.button("Get Hint", key=f"hint_btn_{idx}"):
+                    if not gemini_key_student:
+                        st.warning("Please enter your Gemini API Key.")
+                    else:
+                        try:
+                            client = genai.Client(api_key=gemini_key_student)
+                            prompt = f"Give a subtle, helpful hint (without directly revealing the correct answer) for this question: '{current_q['question']}' with options: {current_q['options']}"
+                            res = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                            st.info(res.text)
+                        except Exception as e:
+                            st.error(f"Could not fetch hint: {e}")
 
             col1, col2 = st.columns(2)
             with col1:
@@ -232,15 +296,22 @@ def student_panel():
                         st.session_state.quiz_submitted = True
                         st.rerun()
         else:
-            # --- RESULT PAGE ---
-            st.subheader("📊 Quiz Performance & Results")
+            # --- RESULT PAGE & AI PERFORMANCE FEEDBACK ---
+            st.subheader("📊 Quiz Performance & AI Insights")
             score = 0
             total = len(q_list)
+            incorrect_questions = []
 
             for q in q_list:
                 user_ans = st.session_state.user_answers.get(q["id"])
                 if user_ans == q["answer"]:
                     score += 1
+                else:
+                    incorrect_questions.append({
+                        "question": q["question"],
+                        "your_answer": user_ans if user_ans else "Not Answered",
+                        "correct_answer": q["answer"]
+                    })
 
             percentage = (score / total) * 100
 
@@ -254,6 +325,22 @@ def student_panel():
                 st.success("🎉 Outstanding! You passed the quiz successfully.")
             else:
                 st.error("❌ Don't worry! Review the material and try again.")
+
+            # AI Analysis Section
+            st.markdown("---")
+            st.subheader("🤖 AI Performance Tutor Analysis")
+            ai_analysis_key = st.text_input("Enter Gemini API Key for Feedback", type="password", key="analysis_key")
+            if st.button("Generate AI Feedback"):
+                if not ai_analysis_key:
+                    st.warning("Please enter your API Key for detailed feedback.")
+                else:
+                    try:
+                        client = genai.Client(api_key=ai_analysis_key)
+                        feedback_prompt = f"The student scored {score} out of {total} ({percentage}%) in category {selected_cat}. Here are the questions they got wrong: {incorrect_questions}. Provide a short, motivating tutor-like feedback explaining how they can improve."
+                        feedback_res = client.models.generate_content(model='gemini-2.5-flash', contents=feedback_prompt)
+                        st.write(feedback_res.text)
+                    except Exception as e:
+                        st.error(f"Error generating feedback: {e}")
 
             if st.button("🔄 Restart / Attempt Another Quiz"):
                 del st.session_state.active_quiz
